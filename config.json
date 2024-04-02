@@ -1,0 +1,4 @@
+{
+    "shellyTempURL": "http://192.168.33.1/rpc/Temperature.GetConfig?id=0",
+    "shellyHeatingOnURL": "http://192.168.33.1/rpc/Switch.Set?id=0&on=true"
+}
