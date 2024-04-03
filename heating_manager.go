@@ -11,153 +11,165 @@ import (
 )
 
 type Config struct {
-	ShellyURL          string `json:"shellyURL"`
-	ShellyHeatingOnURL string `json:"shellyHeatingOnURL"`
+	ShellyURL            string  `json:"shellyURL"`
+	ShellyHeatingOnURL   string  `json:"shellyHeatingOnURL"`
+	TemperatureThreshold float64 `json:"temperatureThreshold"`
 }
 
-var (
-	temperatureExceeded bool
-	checkInterval       = 5 * time.Minute
-	lastCheckFile       = "lastCheck.txt"
-)
+type HeatingManager struct {
+	Config              Config
+	TemperatureExceeded bool
+	CheckInterval       time.Duration
+	LastCheckFile       string
+}
+
+func NewHeatingManager() (*HeatingManager, error) {
+	config, err := loadConfig()
+	if err != nil {
+		return nil, err
+	}
+
+	return &HeatingManager{
+		Config:        config,
+		CheckInterval: 5 * time.Minute,
+		LastCheckFile: "lastCheck.txt",
+	}, nil
+}
+
+func (hm *HeatingManager) StartTemperatureMonitoring() {
+	ticker := time.NewTicker(hm.CheckInterval)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		hm.checkTemperature(hm.Config.ShellyURL)
+	}
+}
+
+func (hm *HeatingManager) StartWeeklyCheck() {
+	weeklyCheckTimer := time.NewTimer(hm.nextWeeklyCheckDuration())
+	defer weeklyCheckTimer.Stop()
+
+	for {
+		select {
+		case <-weeklyCheckTimer.C:
+			hm.weeklyCheck(hm.Config.ShellyHeatingOnURL)
+			weeklyCheckTimer.Reset(hm.nextWeeklyCheckDuration())
+		}
+	}
+}
+
+func loadConfig() (Config, error) {
+	var config Config
+	configFile, err := os.Open("config.json")
+	if err != nil {
+		return config, fmt.Errorf("failed to open config file: %v", err)
+	}
+	defer configFile.Close()
+
+	err = json.NewDecoder(configFile).Decode(&config)
+	if err != nil {
+		return config, fmt.Errorf("failed to parse config file: %v", err)
+	}
+
+	return config, nil
+}
+
+func (hm *HeatingManager) checkTemperature(shellyURL string) {
+	temperature, err := getTemperature(shellyURL)
+	if err != nil {
+		log.Printf("Failed to get temperature: %v", err)
+		return
+	}
+
+	if temperature > hm.Config.TemperatureThreshold {
+		fmt.Println("Temperature has exceeded 55°C! Legionellaheating will be resheduled.")
+		hm.TemperatureExceeded = true
+	} else {
+		fmt.Println("Temperature is in order.")
+		hm.TemperatureExceeded = false
+	}
+}
 
 func getTemperature(shellyTempURL string) (float64, error) {
 	resp, err := http.Get(shellyTempURL)
 	if err != nil {
-		return 0, err
+		return 0, fmt.Errorf("failed to get temperature: %v", err)
 	}
 	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return 0, fmt.Errorf("failed to get temperature: status code %d", resp.StatusCode)
+	}
 
 	var temperatureStr string
 	_, err = fmt.Fscan(resp.Body, &temperatureStr)
 	if err != nil {
-		return 0, err
+		return 0, fmt.Errorf("failed to read temperature: %v", err)
 	}
 
 	temperature, err := strconv.ParseFloat(temperatureStr, 64)
 	if err != nil {
-		return 0, err
+		return 0, fmt.Errorf("failed to parse temperature: %v", err)
 	}
 
 	return temperature, nil
 }
 
-func checkTemperature(shellyURL string) {
-	temperature, err := getTemperature(shellyURL)
-	if err != nil {
-		log.Printf("Fehler beim Abrufen der Temperatur: %v", err)
-		return
+func (hm *HeatingManager) weeklyCheck(shellyHeatingOnURL string) {
+	if !hm.TemperatureExceeded {
+		if err := hm.turnShellyOn(shellyHeatingOnURL); err != nil {
+			log.Printf("Failed to turn on Shelly: %v", err)
+		}
 	}
-
-	if temperature > 55 {
-		fmt.Println("Die Temperatur hat 55°C überschritten! Legionellenschaltung wird verschoben.")
-		temperatureExceeded = true
-	} else {
-		fmt.Println("Temperatur ist in Ordnung.")
-	}
+	hm.TemperatureExceeded = false
+	hm.saveLastCheckTime()
 }
 
-func turnShellyOn(shellyHeatingOnURL string) error {
+func (hm *HeatingManager) turnShellyOn(shellyHeatingOnURL string) error {
 	resp, err := http.Get(shellyHeatingOnURL)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to turn on Shelly: %v", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("failed to turn on Shelly, status code: %d", resp.StatusCode)
+		return fmt.Errorf("failed to turn on Shelly: status code %d", resp.StatusCode)
 	}
 
-	fmt.Println("Shelly eingeschaltet.")
+	fmt.Println("Shelly turned on.")
 	return nil
 }
 
-func weeklyCheck(shellyHeatingOnURL string) {
-	if !temperatureExceeded {
-		if err := turnShellyOn(shellyHeatingOnURL); err != nil {
-			log.Printf("Fehler beim Einschalten des Shelly: %v", err)
-		}
-	}
-	temperatureExceeded = false
-	saveLastCheckTime()
-}
-
-func saveLastCheckTime() {
+func (hm *HeatingManager) saveLastCheckTime() {
 	now := time.Now()
-	err := os.WriteFile(lastCheckFile, []byte(now.Format(time.RFC3339)), 0644)
+	err := os.WriteFile(hm.LastCheckFile, []byte(now.Format(time.RFC3339)), 0644)
 	if err != nil {
-		log.Printf("Fehler beim Speichern des letzten Überprüfungszeitpunkts: %v", err)
+		log.Printf("Failed to save last check time: %v", err)
 	}
 }
 
-func getLastCheckTime() time.Time {
-	if _, err := os.Stat(lastCheckFile); os.IsNotExist(err) {
-		// Datei existiert nicht, also führe sofort eine Überprüfung durch und speichere die Zeit
-		now := time.Now()
-		saveLastCheckTime()
-		return now
-	}
-
-	data, err := os.ReadFile(lastCheckFile)
+func (hm *HeatingManager) nextWeeklyCheckDuration() time.Duration {
+	lastCheck, err := hm.readLastCheckTime()
 	if err != nil {
-		log.Printf("Fehler beim Lesen des letzten Überprüfungszeitpunkts: %v", err)
-		return time.Now()
+		return 0
 	}
-
-	lastCheck, err := time.Parse(time.RFC3339, string(data))
-	if err != nil {
-		log.Printf("Fehler beim Parsen des letzten Überprüfungszeitpunkts: %v", err)
-		return time.Now()
-	}
-
-	return lastCheck
-}
-
-func nextWeeklyCheckDuration() time.Duration {
-	lastCheck := getLastCheckTime()
 	nextCheck := lastCheck.Add(7 * 24 * time.Hour)
 	if time.Now().After(nextCheck) {
-		return 0 // Sollte sofort prüfen, wenn der nächste Check bereits fällig ist
+		return 0
 	}
 	return nextCheck.Sub(time.Now())
 }
 
-func main() {
-	configFile, err := os.Open("config.json")
+func (hm *HeatingManager) readLastCheckTime() (time.Time, error) {
+	data, err := os.ReadFile(hm.LastCheckFile)
 	if err != nil {
-		log.Fatalf("Fehler beim Öffnen der Konfigurationsdatei: %v", err)
+		return time.Time{}, fmt.Errorf("failed to read last check time: %v", err)
 	}
-	defer configFile.Close()
 
-	var config Config
-	err = json.NewDecoder(configFile).Decode(&config)
+	lastCheck, err := time.Parse(time.RFC3339, string(data))
 	if err != nil {
-		log.Fatalf("Fehler beim Parsen der Konfigurationsdatei: %v", err)
+		return time.Time{}, fmt.Errorf("failed to parse last check time: %v", err)
 	}
 
-	ticker := time.NewTicker(checkInterval)
-	defer ticker.Stop()
-
-	weeklyCheckTimer := time.NewTimer(nextWeeklyCheckDuration())
-	defer weeklyCheckTimer.Stop()
-
-	for {
-		select {
-		case <-ticker.C:
-			checkTemperature(config.ShellyURL)
-		case <-weeklyCheckTimer.C:
-			weeklyCheck(config.ShellyHeatingOnURL)
-			weeklyTicker := time.NewTicker(7 * 24 * time.Hour)
-			defer weeklyTicker.Stop()
-			go func() {
-				for {
-					select {
-					case <-weeklyTicker.C:
-						weeklyCheck(config.ShellyHeatingOnURL)
-					}
-				}
-			}()
-			weeklyCheckTimer.Stop()
-		}
-	}
+	return lastCheck, nil
 }
