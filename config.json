@@ -1,5 +1,5 @@
 {
-    "shellyTempURL": "http://192.168.33.1/rpc/Temperature.GetConfig?id=0",
-    "shellyHeatingOnURL": "http://192.168.33.1/rpc/Switch.Set?id=0&on=true",
+    "shellyTempURL": "http://192.168.178.1/rpc/Temperature.GetStatus?id=100",
+    "shellyHeatingOnURL": "http://192.168.178.1/rpc/Switch.Set?id=0&on=true",
     "temperatureThreshold": 55
 }

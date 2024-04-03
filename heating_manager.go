@@ -3,16 +3,16 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
-	"strconv"
 	"time"
 )
 
 // Config represents the application configuration.
 type Config struct {
-	ShellyURL            string  `json:"shellyURL"`            // URL of the Shelly device temperature addon.
+	ShellyURL            string  `json:"shellyTempURL"`        // URL of the Shelly device temperature addon.
 	ShellyHeatingOnURL   string  `json:"shellyHeatingOnURL"`   // URL to turn Shelly heating on.
 	TemperatureThreshold float64 `json:"temperatureThreshold"` // Temperature threshold in Celsius.
 }
@@ -23,6 +23,12 @@ type HeatingManager struct {
 	TemperatureExceeded bool          // Indicates if the temperature threshold has been exceeded.
 	CheckInterval       time.Duration // Interval between temperature checks.
 	LastCheckFile       string        // File to save and read the last check time.
+}
+
+type TempResponse struct {
+	ID int     `json:"id"`
+	TC float64 `json:"tC"`
+	TF float64 `json:"tF"`
 }
 
 // NewHeatingManager creates a new HeatingManager instance.
@@ -109,18 +115,17 @@ func getTemperature(shellyTempURL string) (float64, error) {
 		return 0, fmt.Errorf("failed to get temperature: status code %d", resp.StatusCode)
 	}
 
-	var temperatureStr string
-	_, err = fmt.Fscan(resp.Body, &temperatureStr)
+	body, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
-		return 0, fmt.Errorf("failed to read temperature: %v", err)
+		return 0, fmt.Errorf("failed to read response body: %v", err)
 	}
 
-	temperature, err := strconv.ParseFloat(temperatureStr, 64)
-	if err != nil {
-		return 0, fmt.Errorf("failed to parse temperature: %v", err)
+	var tempResponse TempResponse
+	if err := json.Unmarshal(body, &tempResponse); err != nil {
+		return 0, fmt.Errorf("failed to unmarshal temperature response: %v", err)
 	}
 
-	return temperature, nil
+	return tempResponse.TC, nil
 }
 
 // weeklyCheck checks if the temperature threshold has been exceeded and turns on the Shelly heating if necessary.
