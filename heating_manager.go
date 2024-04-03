@@ -82,7 +82,7 @@ func (hm *HeatingManager) checkTemperature(shellyURL string) {
 	}
 
 	if temperature > hm.Config.TemperatureThreshold {
-		fmt.Println("Temperature has exceeded 55°C! Legionellaheating will be resheduled.")
+		fmt.Println("Temperature has exceeded %.1f°C! Legionellaheating will be resheduled.", hm.Config.TemperatureThreshold)
 		hm.TemperatureExceeded = true
 	} else {
 		fmt.Println("Temperature is in order.")
