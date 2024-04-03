@@ -4,19 +4,23 @@ import (
 	"log"
 )
 
+// HeatingManager is the main entry point of the program.
+// It initializes a new HeatingManager instance and
+// starts two goroutines for temperature monitoring and weekly check.
+// The program then enters an infinite loop, waiting for events.
 func main() {
-	// Erstelle eine neue Instanz des HeatingManager
+	// Initialize a new HeatingManager instance
 	manager, err := NewHeatingManager()
 	if err != nil {
 		log.Fatalf("Failed to initialize heating manager: %v", err)
 	}
 
-	// Starte die kontinuierliche Temperaturüberwachung in einem neuen Goroutine
+	// Start temperature monitoring in a separate goroutine
 	go manager.StartTemperatureMonitoring()
 
-	// Starte die wöchentliche Überprüfung in einem neuen Goroutine
+	// Start weekly check in a separate goroutine
 	go manager.StartWeeklyCheck()
 
-	// Verhindere, dass das Programm endet, indem in einer endlosen Schleife auf Ereignisse gewartet wird
+	// Wait for events in an infinite loop
 	select {}
 }

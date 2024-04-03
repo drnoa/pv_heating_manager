@@ -10,19 +10,22 @@ import (
 	"time"
 )
 
+// Config represents the application configuration.
 type Config struct {
-	ShellyURL            string  `json:"shellyURL"`
-	ShellyHeatingOnURL   string  `json:"shellyHeatingOnURL"`
-	TemperatureThreshold float64 `json:"temperatureThreshold"`
+	ShellyURL            string  `json:"shellyURL"`            // URL of the Shelly device temperature addon.
+	ShellyHeatingOnURL   string  `json:"shellyHeatingOnURL"`   // URL to turn Shelly heating on.
+	TemperatureThreshold float64 `json:"temperatureThreshold"` // Temperature threshold in Celsius.
 }
 
+// HeatingManager is the main application struct.
 type HeatingManager struct {
-	Config              Config
-	TemperatureExceeded bool
-	CheckInterval       time.Duration
-	LastCheckFile       string
+	Config              Config        // Configuration.
+	TemperatureExceeded bool          // Indicates if the temperature threshold has been exceeded.
+	CheckInterval       time.Duration // Interval between temperature checks.
+	LastCheckFile       string        // File to save and read the last check time.
 }
 
+// NewHeatingManager creates a new HeatingManager instance.
 func NewHeatingManager() (*HeatingManager, error) {
 	config, err := loadConfig()
 	if err != nil {
@@ -36,6 +39,7 @@ func NewHeatingManager() (*HeatingManager, error) {
 	}, nil
 }
 
+// StartTemperatureMonitoring starts the temperature monitoring loop.
 func (hm *HeatingManager) StartTemperatureMonitoring() {
 	ticker := time.NewTicker(hm.CheckInterval)
 	defer ticker.Stop()
@@ -45,6 +49,7 @@ func (hm *HeatingManager) StartTemperatureMonitoring() {
 	}
 }
 
+// StartWeeklyCheck starts the weekly check loop.
 func (hm *HeatingManager) StartWeeklyCheck() {
 	weeklyCheckTimer := time.NewTimer(hm.nextWeeklyCheckDuration())
 	defer weeklyCheckTimer.Stop()
@@ -58,6 +63,7 @@ func (hm *HeatingManager) StartWeeklyCheck() {
 	}
 }
 
+// loadConfig loads the application configuration from a JSON file.
 func loadConfig() (Config, error) {
 	var config Config
 	configFile, err := os.Open("config.json")
@@ -74,6 +80,7 @@ func loadConfig() (Config, error) {
 	return config, nil
 }
 
+// checkTemperature checks the temperature of a Shelly device.
 func (hm *HeatingManager) checkTemperature(shellyURL string) {
 	temperature, err := getTemperature(shellyURL)
 	if err != nil {
@@ -90,6 +97,7 @@ func (hm *HeatingManager) checkTemperature(shellyURL string) {
 	}
 }
 
+// getTemperature gets the temperature of a Shelly device.
 func getTemperature(shellyTempURL string) (float64, error) {
 	resp, err := http.Get(shellyTempURL)
 	if err != nil {
@@ -115,6 +123,7 @@ func getTemperature(shellyTempURL string) (float64, error) {
 	return temperature, nil
 }
 
+// weeklyCheck checks if the temperature threshold has been exceeded and turns on the Shelly heating if necessary.
 func (hm *HeatingManager) weeklyCheck(shellyHeatingOnURL string) {
 	if !hm.TemperatureExceeded {
 		if err := hm.turnShellyOn(shellyHeatingOnURL); err != nil {
@@ -125,6 +134,7 @@ func (hm *HeatingManager) weeklyCheck(shellyHeatingOnURL string) {
 	hm.saveLastCheckTime()
 }
 
+// turnShellyOn turns on the Shelly heating.
 func (hm *HeatingManager) turnShellyOn(shellyHeatingOnURL string) error {
 	resp, err := http.Get(shellyHeatingOnURL)
 	if err != nil {
@@ -140,6 +150,7 @@ func (hm *HeatingManager) turnShellyOn(shellyHeatingOnURL string) error {
 	return nil
 }
 
+// saveLastCheckTime saves the last check time to a file.
 func (hm *HeatingManager) saveLastCheckTime() {
 	now := time.Now()
 	err := os.WriteFile(hm.LastCheckFile, []byte(now.Format(time.RFC3339)), 0644)
@@ -148,6 +159,7 @@ func (hm *HeatingManager) saveLastCheckTime() {
 	}
 }
 
+// nextWeeklyCheckDuration calculates the duration until the next weekly check.
 func (hm *HeatingManager) nextWeeklyCheckDuration() time.Duration {
 	lastCheck, err := hm.readLastCheckTime()
 	if err != nil {
@@ -160,15 +172,16 @@ func (hm *HeatingManager) nextWeeklyCheckDuration() time.Duration {
 	return nextCheck.Sub(time.Now())
 }
 
+// readLastCheckTime reads the last check time from a file.
 func (hm *HeatingManager) readLastCheckTime() (time.Time, error) {
 	data, err := os.ReadFile(hm.LastCheckFile)
 	if err != nil {
-		return time.Time{}, fmt.Errorf("failed to read last check time: %v", err)
+		return time.Time{}, fmt.Errorf("failed to read last check time: %w", err)
 	}
 
 	lastCheck, err := time.Parse(time.RFC3339, string(data))
 	if err != nil {
-		return time.Time{}, fmt.Errorf("failed to parse last check time: %v", err)
+		return time.Time{}, fmt.Errorf("failed to parse last check time: %w", err)
 	}
 
 	return lastCheck, nil
