@@ -35,7 +35,7 @@ func TestCheckTemperature(t *testing.T) {
 
 func TestWeeklyCheck(t *testing.T) {
 	manager, _ := NewHeatingManager()
-	manager.weeklyCheck("someURL")
+	manager.weeklyCheck("someURL", "someOtherURL")
 }
 
 func TestGetTemperature(t *testing.T) {

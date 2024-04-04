@@ -1,8 +1,9 @@
 {
-    "shellyTempURL": "http://192.168.178.1/rpc/Temperature.GetStatus?id=102",
-    "shellyHeatingOnURL": "http://192.168.178.1/rpc/Switch.Set?id=0&on=true",
+    "shellyTempURL": "http://[yourIP]/rpc/Temperature.GetStatus?id=102",
+    "shellyHeatingOnURL": "http://[yourIP]/rpc/Switch.Set?id=0&on=true",
+    "shellyHeatingOffURL": "http://[yourIP]/rpc/Switch.Set?id=0&on=false",
     "temperatureThreshold": 55,
+    "temperatureTurnOff": 60,
     "checkInterval": 5, 
     "weeklyCheckInterval": 168
-
 }

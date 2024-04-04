@@ -14,7 +14,9 @@ import (
 type Config struct {
 	ShellyURL            string  `json:"shellyTempURL"`        // URL of the Shelly device temperature addon.
 	ShellyHeatingOnURL   string  `json:"shellyHeatingOnURL"`   // URL to turn Shelly heating on.
+	ShellyHeatingOffURL  string  `json:"shellyHeatingOffURL"`  // URL to turn Shelly heating off.
 	TemperatureThreshold float64 `json:"temperatureThreshold"` // Temperature threshold in Celsius.
+	TemperatureTurnOff   float64 `json:"temperatureTurnOff"`   // Temperature at which to turn off the heating.
 	CheckInterval        int     `json:"checkInterval"`        // Check interval in minutes.
 	WeeklyCheckInterval  int     `json:"weeklyCheckInterval"`  // Weekly check interval in hours.
 
@@ -64,7 +66,7 @@ func (hm *HeatingManager) StartWeeklyCheck() {
 	defer weeklyCheckTimer.Stop()
 
 	for range weeklyCheckTimer.C {
-		hm.weeklyCheck(hm.Config.ShellyHeatingOnURL)
+		hm.weeklyCheck(hm.Config.ShellyHeatingOnURL, hm.Config.ShellyHeatingOffURL)
 		weeklyCheckTimer.Reset(hm.nextWeeklyCheckDuration())
 	}
 }
@@ -128,9 +130,9 @@ func getTemperature(shellyTempURL string) (float64, error) {
 }
 
 // weeklyCheck checks if the temperature threshold has been exceeded and turns on the Shelly heating if necessary.
-func (hm *HeatingManager) weeklyCheck(shellyHeatingOnURL string) {
+func (hm *HeatingManager) weeklyCheck(shellyHeatingOnURL string, shellyHeatingOffURL string) {
 	if !hm.TemperatureExceeded {
-		if err := hm.turnShellyOn(shellyHeatingOnURL); err != nil {
+		if err := hm.turnShellyOn(shellyHeatingOnURL, shellyHeatingOffURL); err != nil {
 			log.Printf("Failed to turn on Shelly: %v", err)
 		}
 	}
@@ -138,8 +140,8 @@ func (hm *HeatingManager) weeklyCheck(shellyHeatingOnURL string) {
 	hm.saveLastCheckTime()
 }
 
-// turnShellyOn turns on the Shelly heating.
-func (hm *HeatingManager) turnShellyOn(shellyHeatingOnURL string) error {
+// turnShellyOn turns on the Shelly heating, schedules it to turn off after 4 hours, and checks if the temperature exceeds 60°C.
+func (hm *HeatingManager) turnShellyOn(shellyHeatingOnURL, shellyHeatingOffURL string) error {
 	resp, err := http.Get(shellyHeatingOnURL)
 	if err != nil {
 		return fmt.Errorf("failed to turn on Shelly: %v", err)
@@ -151,6 +153,49 @@ func (hm *HeatingManager) turnShellyOn(shellyHeatingOnURL string) error {
 	}
 
 	fmt.Println("Shelly turned on.")
+
+	// Schedule to turn off after 4 hours
+	offTimer := time.AfterFunc(4*time.Hour, func() {
+		if err := hm.turnShellyOff(shellyHeatingOffURL); err != nil {
+			log.Printf("Failed to turn off Shelly: %v", err)
+		}
+		fmt.Println("Shelly turned off.")
+		hm.TemperatureExceeded = false
+	})
+
+	// Check temperature every minute to see if it exceeds 60°C
+	checkTimer := time.NewTicker(5 * time.Minute)
+	go func() {
+		for range checkTimer.C {
+			temp, err := getTemperature(hm.Config.ShellyURL)
+			if err != nil {
+				log.Printf("Error checking temperature: %v", err)
+				continue
+			}
+			if temp > hm.Config.TemperatureTurnOff {
+				fmt.Println("Temperature exceeded. Turning off Shelly.")
+				checkTimer.Stop()
+				offTimer.Stop()
+				hm.TemperatureExceeded = false
+			}
+		}
+	}()
+	return nil
+}
+
+// turnShellyOff turns off the Shelly heating.
+func (hm *HeatingManager) turnShellyOff(shellyHeatingOffURL string) error {
+	resp, err := http.Get(shellyHeatingOffURL)
+	if err != nil {
+		return fmt.Errorf("failed to turn off Shelly: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("failed to turn off Shelly: status code %d", resp.StatusCode)
+	}
+
+	fmt.Println("Shelly turned off.")
 	return nil
 }
 
