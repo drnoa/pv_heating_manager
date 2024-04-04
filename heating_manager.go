@@ -3,7 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -15,6 +15,9 @@ type Config struct {
 	ShellyURL            string  `json:"shellyTempURL"`        // URL of the Shelly device temperature addon.
 	ShellyHeatingOnURL   string  `json:"shellyHeatingOnURL"`   // URL to turn Shelly heating on.
 	TemperatureThreshold float64 `json:"temperatureThreshold"` // Temperature threshold in Celsius.
+	CheckInterval        int     `json:"checkInterval"`        // Check interval in minutes.
+	WeeklyCheckInterval  int     `json:"weeklyCheckInterval"`  // Weekly check interval in hours.
+
 }
 
 // HeatingManager is the main application struct.
@@ -40,7 +43,7 @@ func NewHeatingManager() (*HeatingManager, error) {
 
 	return &HeatingManager{
 		Config:        config,
-		CheckInterval: 5 * time.Minute,
+		CheckInterval: time.Duration(config.CheckInterval) * time.Minute,
 		LastCheckFile: "lastCheck.txt",
 	}, nil
 }
@@ -60,12 +63,9 @@ func (hm *HeatingManager) StartWeeklyCheck() {
 	weeklyCheckTimer := time.NewTimer(hm.nextWeeklyCheckDuration())
 	defer weeklyCheckTimer.Stop()
 
-	for {
-		select {
-		case <-weeklyCheckTimer.C:
-			hm.weeklyCheck(hm.Config.ShellyHeatingOnURL)
-			weeklyCheckTimer.Reset(hm.nextWeeklyCheckDuration())
-		}
+	for range weeklyCheckTimer.C {
+		hm.weeklyCheck(hm.Config.ShellyHeatingOnURL)
+		weeklyCheckTimer.Reset(hm.nextWeeklyCheckDuration())
 	}
 }
 
@@ -95,11 +95,10 @@ func (hm *HeatingManager) checkTemperature(shellyURL string) {
 	}
 
 	if temperature > hm.Config.TemperatureThreshold {
-		fmt.Println("Temperature has exceeded %.1f°C! Legionellaheating will be resheduled.", hm.Config.TemperatureThreshold)
+		fmt.Printf("Temperature has exceeded %.1f°C! Legionella heating will be rescheduled.\n", hm.Config.TemperatureThreshold)
 		hm.TemperatureExceeded = true
 	} else {
-		fmt.Println("Temperature is in order.")
-		hm.TemperatureExceeded = false
+		fmt.Printf("Temperature is OK. Actual temperature: %.1f°C\n", temperature)
 	}
 }
 
@@ -115,7 +114,7 @@ func getTemperature(shellyTempURL string) (float64, error) {
 		return 0, fmt.Errorf("failed to get temperature: status code %d", resp.StatusCode)
 	}
 
-	body, err := ioutil.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return 0, fmt.Errorf("failed to read response body: %v", err)
 	}
@@ -170,11 +169,11 @@ func (hm *HeatingManager) nextWeeklyCheckDuration() time.Duration {
 	if err != nil {
 		return 0
 	}
-	nextCheck := lastCheck.Add(7 * 24 * time.Hour)
+	nextCheck := lastCheck.Add(time.Duration(hm.Config.WeeklyCheckInterval) * time.Hour)
 	if time.Now().After(nextCheck) {
 		return 0
 	}
-	return nextCheck.Sub(time.Now())
+	return time.Until(nextCheck)
 }
 
 // readLastCheckTime reads the last check time from a file.
